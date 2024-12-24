@@ -9,7 +9,7 @@ This app only caches `GET` responses to avoid caching data-modifying requests li
 inside project run:
 ```bash
 # node index.js --port <number> --origin <url>
-node index.js --port 3000 --origin http://dummyjson.com
+node index.js --port 3000 --origin https://dummyjson.com
 ```
 
 ### Test

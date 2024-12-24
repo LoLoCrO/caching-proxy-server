@@ -1,6 +1,8 @@
 const http = require('http');
+const https = require('https');
 const url = require('url');
 const minimist = require('minimist');
+const zlib = require('zlib');
 
 const cache = new Map();
 
@@ -12,14 +14,6 @@ const origin = args.origin;
 if (!port || !origin) {
     console.error('Usage: caching-proxy --port <number> --origin <url>');
     process.exit(1);
-}
-
-
-// not really needed since the cache is in memory which is cleared when the server is restarted
-if (args['cache-clear']) {
-    cache.clear();
-    console.log('Cache cleared');
-    process.exit(0);
 }
 
 const server = http.createServer((req, res) => {
@@ -39,14 +33,18 @@ const server = http.createServer((req, res) => {
     } else {
         console.log(`Cache MISS for ${cacheKey}`);
 
+        const parsedOrigin = url.parse(origin);
+        const isHttps = parsedOrigin.protocol === 'https:';
+        const protocol = isHttps ? https : http;
+
         const options = {
-            hostname: url.parse(origin).hostname,
-            port: url.parse(origin).port || 80,
+            hostname: parsedOrigin.hostname,
+            port: parsedOrigin.port || (isHttps ? 443 : 80),
             path: reqUrl,
             method: req.method,
             headers: {
                 ...req.headers,
-                host: url.parse(origin).hostname,
+                host: parsedOrigin.hostname,
             },
         };
 
@@ -56,25 +54,35 @@ const server = http.createServer((req, res) => {
         });
 
         req.on('end', () => {
-            const proxyReq = http.request(options, (proxyRes) => {
+            const proxyReq = protocol.request(options, (proxyRes) => {
+                const encoding = proxyRes.headers['content-encoding'];
+                let responseStream = proxyRes;
+
+                if (encoding === 'gzip') {
+                    responseStream = proxyRes.pipe(zlib.createGunzip());
+                } else if (encoding === 'deflate') {
+                    responseStream = proxyRes.pipe(zlib.createInflate());
+                }
+
                 let responseBody = '';
-                
-                
-                proxyRes.on('data', (chunk) => {
+                responseStream.on('data', (chunk) => {
                     responseBody += chunk;
                 });
-                
-                proxyRes.on('end', () => {
+
+                responseStream.on('end', () => {
+                    const headers = { ...proxyRes.headers };
+                    delete headers['content-encoding'];
+
                     if (req.method === 'GET') {
                         cache.set(cacheKey, {
                             statusCode: proxyRes.statusCode,
-                            headers: proxyRes.headers,
+                            headers: headers,
                             body: responseBody,
                         });
                     }
 
                     res.writeHead(proxyRes.statusCode, {
-                        ...proxyRes.headers,
+                        ...headers,
                         'X-Cache': 'MISS',
                     });
 
@@ -102,7 +110,10 @@ const server = http.createServer((req, res) => {
         });
     }
 
-    console.log(cache);
+    // Uncomment to see cached body contents
+    // cache.forEach((value, _key) => {
+    //     console.log(JSON.parse(value.body));
+    // });
 });
 
 server.listen(port, () => {
