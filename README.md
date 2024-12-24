@@ -1,4 +1,4 @@
-# Caching-proxy-server
+# Caching Proxy Server
 Caching server that caches responses from other servers
 Sample for [Caching Proxy](https://roadmap.sh/projects/caching-server) from [roadmap.sh](https://roadmap.sh/)
 
